@@ -1,0 +1,16 @@
+#!/bin/bash
+# GLASSDECK uninstaller — returns the feeder to exactly how it was.
+set -euo pipefail
+if [ "$(id -u)" -ne 0 ]; then echo "run with sudo"; exit 1; fi
+
+echo "removing GLASSDECK cron lines…"
+( crontab -l 2>/dev/null | grep -v glassdeck | grep -v gd_exporter ) | crontab - || true
+
+echo "removing served files…"
+rm -f  /run/adsb-feeder-ultrafeeder/tar1090/glassdeck.html
+rm -rf /run/adsb-feeder-ultrafeeder/tar1090/gd-data
+
+echo "removing /opt/adsb/glassdeck…"
+rm -rf /opt/adsb/glassdeck
+
+echo "GLASSDECK removed. Nothing else was ever modified."
