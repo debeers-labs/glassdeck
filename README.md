@@ -35,6 +35,23 @@ The installer personalises everything automatically from your feeder's own confi
 station name, position, altitude, your enabled aggregators — and it *measures* your
 range-ring scale from your own 34-day reach record.
 
+## Join the GLASSDECK network (optional)
+
+The dashboard's "GLASSDECK network" slot is a community aggregator with a public
+globe. Joining is **additive**: a bandwidth-reduced copy of your traffic flows to
+the network alongside your existing aggregators — nothing about your current
+feeds changes, and leaving is one command.
+
+```
+sudo python3 /opt/adsb/glassdeck/gd_install.py --join     # start feeding
+sudo python3 /opt/adsb/glassdeck/gd_install.py --leave    # stop feeding
+```
+
+The change is applied through the adsb.im app's own Expert mechanism (one
+`READSB_NET_CONNECTOR` environment line), so it's visible and editable in the
+original UI too, and it briefly restarts the feed containers like any settings
+change. Your data feeds the shared globe; no accounts, no tracking.
+
 ## Design principles
 
 - **Read-only against everything that exists.** Live data comes from the same
