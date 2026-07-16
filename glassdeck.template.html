@@ -5289,15 +5289,16 @@ window.GDCore = (function(){
     try { const r = await fetch(url, { signal: ctl.signal, cache: 'no-store' }); clearTimeout(t); return r.ok ? r.json() : null; }
     catch(e){ clearTimeout(t); return null; }
   }
+  let liveReceiverOk = false; // never trust SAMPLE.receiver coords for live geometry
   async function detectMode(){
     for (const base of LIVE_BASES){
-      const ac = await tryFetch(base + 'aircraft.json', 2500);
+      const ac = await tryFetch(base + 'aircraft.json', 5000);
       if (ac && ac.aircraft){
         liveBase = base;
         curAircraft = ac;
-        curStats = await tryFetch(base + 'stats.json', 2500);
-        const rc = await tryFetch(base + 'receiver.json', 2500);
-        if (rc) curReceiver = rc;
+        curStats = await tryFetch(base + 'stats.json', 6000);
+        const rc = await tryFetch(base + 'receiver.json', 6000);
+        if (rc){ curReceiver = rc; liveReceiverOk = true; }
         return 'live';
       }
     }
@@ -5323,11 +5324,11 @@ window.GDCore = (function(){
       document.getElementById('olnk-setup').href = imRoot + 'setup';
       document.getElementById('olnk-sdr').href = imRoot + 'sdr_setup';
       document.getElementById('olnk-sys').href = imRoot + 'systemmgmt';
-      setInterval(async () => { const a = await tryFetch(liveBase + 'aircraft.json', 3000); if (a) curAircraft = a; }, 2000);
-      setInterval(async () => { const s = await tryFetch(liveBase + 'stats.json', 4000); if (s){ curStats = s; pushHistory(); } }, 10000);
+      setInterval(async () => { const a = await tryFetch(liveBase + 'aircraft.json', 6000); if (a) curAircraft = a; }, 2000);
+      setInterval(async () => { const s = await tryFetch(liveBase + 'stats.json', 8000); if (s){ curStats = s; pushHistory(); } }, 10000);
       let prefilledLive = false;
       const pollSystem = async () => {
-        liveSystem = await tryFetch('gd-data/system.json', 3000);
+        liveSystem = await tryFetch('gd-data/system.json', 8000);
         renderSystems();
         renderUplinks();
         if (liveSystem && liveSystem.base && !prefilledLive){ prefilledLive = true; prefillSettings(); }
@@ -5338,10 +5339,18 @@ window.GDCore = (function(){
       pollHist();
       setInterval(pollHist, 300000);
       const pollOutline = async () => {
-        const o = await tryFetch(liveBase + 'outline.json', 4000);
+        if (!liveReceiverOk) return; // outline is drawn relative to the receiver — wait for the real one
+        const o = await tryFetch(liveBase + 'outline.json', 8000);
         const pts = o && o.actualRange && o.actualRange.last24h && o.actualRange.last24h.points;
         if (pts) drawOutline(pts);
       };
+      const ensureReceiver = async () => {
+        if (liveReceiverOk) return;
+        const rc = await tryFetch(liveBase + 'receiver.json', 8000);
+        if (rc){ curReceiver = rc; liveReceiverOk = true; pollOutline(); }
+        else setTimeout(ensureReceiver, 10000);
+      };
+      ensureReceiver();
       pollOutline();
       setInterval(pollOutline, 60000);
     } else {
