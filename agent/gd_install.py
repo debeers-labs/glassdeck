@@ -66,13 +66,21 @@ def parse_uplinks(uf_config, joined=False):
 
 # ---------- GLASSDECK network join/leave (through the adsb.im app, never its files) ----------
 
+CONFIG_JSON = "/opt/adsb/config/config.json"
+
+
 def read_extra_env():
     """Current value of the Expert-page 'extra env' box.
 
-    The app stores the textarea verbatim in .env, so a multi-line value spans
-    .env lines joined by CRLF — continuation lines end with \r, real .env
-    lines don't. The value ends at the first bare \n. (newline='' keeps \r\n
-    intact — default text mode would translate it away.)"""
+    Newer adsb.im versions persist it in config.json; older ones in .env
+    (where a multi-line value spans lines joined by CRLF — continuation lines
+    end with \r, real .env lines don't; value ends at the first bare \n)."""
+    try:
+        val = json.load(open(CONFIG_JSON)).get(EXTRA_ENV_KEY)
+        if val is not None:
+            return val.strip()
+    except (OSError, ValueError):
+        pass
     try:
         raw = open(ENV_PATH, newline="").read()
     except OSError:
