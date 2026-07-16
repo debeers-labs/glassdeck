@@ -29,7 +29,14 @@ CONTAINER = "ultrafeeder"
 
 GLASSDECK_HOST = "feed.debeers-labs.xyz"
 GLASSDECK_CONNECTOR = GLASSDECK_HOST + ",30004,beast_reduce_plus_out"
-EXPERT_URL = "http://127.0.0.1:80/expert"
+def web_port():
+    """adsb.im app port — 80 on image installs, different on app installs."""
+    return read_env(ENV_PATH).get("AF_WEBPORT") or "80"
+
+
+def tar1090_port(env):
+    """Container web port serving tar1090 (and us) — 8080 on images, often 1090 on app installs."""
+    return env.get("AF_TAR1090_PORT_ADJUSTED") or env.get("AF_TAR1090_PORT") or "8080"
 EXTRA_ENV_KEY = "_ADSBIM_STATE_EXTRA_ENV"
 
 AGG_NAMES = {"adsb.lol": "adsb.lol", "adsb.fi": "adsb.fi", "airplanes.live": "airplanes.live",
@@ -108,7 +115,7 @@ def post_extra_env(value):
         "ultrafeeder_extra_env": value,
         "ultrafeeder_extra_env--submit": "go",
     }).encode()
-    req = urllib.request.Request(EXPERT_URL, data=data)
+    req = urllib.request.Request("http://127.0.0.1:%s/expert" % web_port(), data=data)
     try:
         urllib.request.urlopen(req, timeout=120)
     except Exception as e:
@@ -200,6 +207,7 @@ def main():
         "altM": int(alt_m) if alt_m and alt_m.isdigit() else None,
         "imageVersion": "adsb.im " + version if not version.startswith("adsb.im") else version,
         "uplinks": uplinks,
+        "webPort": int(web_port()),
     }
     print("detected config:", json.dumps(config, indent=2))
 
@@ -220,13 +228,16 @@ def main():
         f"*/5 * * * * python3 {exporter} history {RUN_WEBROOT}/gd-data >/dev/null 2>&1",
         f"* * * * * mkdir -p {RUN_WEBROOT}/gd-data; cmp -s {out_html} {RUN_WEBROOT}/glassdeck.html || cp {out_html} {RUN_WEBROOT}/glassdeck.html",
     ]
+    recorder = os.path.join(BASE, "gd_recorder.py")
+    if os.path.exists(recorder):  # optional flight recorder — drop the file in, it records
+        cron_lines.append(f"* * * * * python3 {recorder} >/dev/null 2>&1")
     existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
     kept = [l for l in existing.splitlines() if "glassdeck" not in l and "gd_exporter" not in l]
     new_tab = "\n".join(kept + cron_lines) + "\n"
     subprocess.run(["crontab", "-"], input=new_tab, text=True, check=True)
 
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip() or "adsb-feeder"
-    print(f"\nGLASSDECK installed — open: http://{host}.local:8080/chunks/glassdeck.html")
+    print(f"\nGLASSDECK installed — open: http://{host}.local:{tar1090_port(env)}/chunks/glassdeck.html")
 
 
 if __name__ == "__main__":
