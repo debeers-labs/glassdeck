@@ -202,12 +202,20 @@ def main():
     uplinks = parse_uplinks(env.get("FEEDER_ULTRAFEEDER_CONFIG", ""), joined=GLASSDECK_HOST in read_extra_env())
     range_km = measure_range_km()
 
+    def sibling(name, default):
+        try:
+            return open(os.path.join(BASE, name)).read().strip() or default
+        except OSError:
+            return default
+
     config = {
         "station": station, "town": town, "rangeKm": range_km,
         "altM": int(alt_m) if alt_m and alt_m.isdigit() else None,
         "imageVersion": "adsb.im " + version if not version.startswith("adsb.im") else version,
         "uplinks": uplinks,
         "webPort": int(web_port()),
+        "gdVersion": sibling("VERSION", "dev"),
+        "gdChannel": sibling("CHANNEL", "main"),
     }
     print("detected config:", json.dumps(config, indent=2))
 

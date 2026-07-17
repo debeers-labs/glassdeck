@@ -395,6 +395,21 @@
         <code>sudo python3 /opt/adsb/glassdeck/gd_install.py --join</code> · <code>--leave</code>
       </div>
     </div>
+    <div class="gdp-card">
+      <h3>Software</h3>
+      <div class="gdp-sub" id="sw-ver">GLASSDECK</div>
+      <div style="margin-top:10px;">
+        <button class="gdp-save" id="sw-check" type="button">Check for updates</button>
+        <span id="sw-status" class="gdp-sub" style="margin-left:8px;"></span>
+      </div>
+      <div class="gdp-note" id="sw-notes" style="display:none;white-space:pre-wrap;margin-top:10px;"></div>
+      <div class="gdp-note" style="margin-top:14px;">
+        update — same command as install; your preferences live in this browser and survive:<br>
+        <code id="sw-cmd">curl -sL … | sudo bash</code> <button class="gdp-win" id="sw-copy" type="button">copy</button><br>
+        uninstall — returns the feeder to exactly stock:<br>
+        <code id="sw-uncmd">sudo /opt/adsb/glassdeck/uninstall.sh</code> <button class="gdp-win" id="sw-copy-un" type="button">copy</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -5269,7 +5284,17 @@ window.GDCore = (function(){
     const withPos = list.filter(a => a.lat != null && a.seen_pos != null && a.seen_pos < 60);
     return { total: list.length, withPos: withPos.length, list, posList: withPos };
   }
-  return { msgRate, posRate, maxRangeKm, recordRangeKm, signal, gainDb, tracks, cpuPct, planeXZ, altUnits, contacts };
+  function cmpVer(a, b){
+    // numeric-aware: "0.10.0" > "0.9.1"; returns -1 / 0 / 1
+    const pa = String(a || '').split(/[^0-9]+/).filter(Boolean).map(Number);
+    const pb = String(b || '').split(/[^0-9]+/).filter(Boolean).map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++){
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  }
+  return { msgRate, posRate, maxRangeKm, recordRangeKm, signal, gainDb, tracks, cpuPct, planeXZ, altUnits, contacts, cmpVer };
 })();
 </script>
 <script>
@@ -5730,7 +5755,7 @@ window.GDCore = (function(){
     }, 5000);
   });
 
-  document.getElementById('ver-chip').textContent = 'readsb ' + (SAMPLE.receiver.version || '').split(' ')[0] + ' · ' + CONFIG.imageVersion + ' · GLASSDECK PI EDITION · concept';
+  document.getElementById('ver-chip').textContent = 'readsb ' + (SAMPLE.receiver.version || '').split(' ')[0] + ' · ' + CONFIG.imageVersion + ' · GLASSDECK v' + (CONFIG.gdVersion || 'dev') + (CONFIG.gdChannel && CONFIG.gdChannel !== 'main' ? ' · ' + CONFIG.gdChannel : '');
 
   setInterval(() => {
     const d = new Date();
@@ -6251,6 +6276,46 @@ window.GDCore = (function(){
     renderHistory();
     renderTableHead();
   }
+  // ---------- software card: version check, update + uninstall helpers ----------
+  {
+    const chan = CONFIG.gdChannel && CONFIG.gdChannel !== 'main' ? CONFIG.gdChannel : 'main';
+    const rawBase = 'https://raw.githubusercontent.com/debeers-labs/glassdeck/' + chan + '/';
+    const updateCmd = 'curl -sL ' + rawBase + 'install.sh | sudo bash';
+    document.getElementById('sw-ver').textContent =
+      'installed: GLASSDECK v' + (CONFIG.gdVersion || 'dev') + (chan !== 'main' ? ' · ' + chan + ' channel' : '');
+    document.getElementById('sw-cmd').textContent = updateCmd;
+    const copy = (id, txt) => document.getElementById(id).addEventListener('click', function(){
+      const b = this;
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+        () => { b.textContent = 'copied'; setTimeout(() => { b.textContent = 'copy'; }, 1600); },
+        () => { b.textContent = 'select it manually'; setTimeout(() => { b.textContent = 'copy'; }, 2500); });
+    });
+    copy('sw-copy', updateCmd);
+    copy('sw-copy-un', 'sudo /opt/adsb/glassdeck/uninstall.sh');
+    document.getElementById('sw-check').addEventListener('click', async function(){
+      const st = document.getElementById('sw-status'), notes = document.getElementById('sw-notes');
+      st.textContent = 'checking…'; st.style.color = '';
+      notes.style.display = 'none';
+      let latest = null;
+      try {
+        const r = await fetch(rawBase + 'VERSION', { cache: 'no-store' });
+        if (r.ok) latest = (await r.text()).trim();
+      } catch(e){}
+      if (!latest){ st.textContent = 'could not reach GitHub — try again later'; return; }
+      if (C.cmpVer(CONFIG.gdVersion || '0', latest) >= 0){
+        st.textContent = 'up to date (v' + latest + ')'; st.style.color = 'var(--green)'; return;
+      }
+      st.textContent = 'v' + latest + ' available — run the update command below'; st.style.color = 'var(--amber)';
+      try { // show the latest release's notes under the button
+        const r = await fetch(rawBase + 'CHANGELOG.md', { cache: 'no-store' });
+        if (r.ok){
+          const sections = (await r.text()).split(/\n(?=## )/).filter(s => s.startsWith('## '));
+          if (sections[0]){ notes.textContent = sections[0].trim(); notes.style.display = 'block'; }
+        }
+      } catch(e){}
+    });
+  }
+
   document.getElementById('unit-km').addEventListener('click', () => setUnits('km'));
   document.getElementById('unit-nm').addEventListener('click', () => setUnits('nm'));
   setUnits(units);
