@@ -187,9 +187,20 @@ def measure_range_km():
 
 
 def main():
-    town = ""
+    # town is cosmetic and not in .env, so remember it across updates the same
+    # way CHANNEL is: --town writes it, a plain update reuses the stored value
+    TOWN_FILE = os.path.join(BASE, "TOWN")
     if "--town" in sys.argv:
         town = sys.argv[sys.argv.index("--town") + 1]
+        try:
+            open(TOWN_FILE, "w").write(town + "\n")
+        except OSError:
+            pass
+    else:
+        try:
+            town = open(TOWN_FILE).read().strip()
+        except OSError:
+            town = ""
     if "--join" in sys.argv:
         set_network(True)
     elif "--leave" in sys.argv:
