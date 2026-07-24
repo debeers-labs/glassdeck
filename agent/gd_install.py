@@ -19,7 +19,7 @@ What it touches (and nothing else):
     root crontab                  — three tagged lines (system/history/self-heal)
 Uninstall: crontab -l | grep -v glassdeck | crontab - ; rm -rf /opt/adsb/glassdeck
 """
-import json, math, os, re, socket, subprocess, sys, time
+import json, math, os, re, socket, subprocess, sys, time, uuid as uuidlib
 import urllib.parse, urllib.request
 
 ENV_PATH = "/opt/adsb/config/.env"
@@ -28,7 +28,35 @@ RUN_WEBROOT = "/run/adsb-feeder-ultrafeeder/tar1090"
 CONTAINER = "ultrafeeder"
 
 GLASSDECK_HOST = "feed.debeers-labs.xyz"
-GLASSDECK_CONNECTOR = GLASSDECK_HOST + ",30004,beast_reduce_plus_out"
+UUID_FILE = os.path.join(BASE, "UUID")
+
+
+def feeder_uuid():
+    """This feeder's GLASSDECK id — generated once, then kept forever.
+
+    Without an id on the connector the hub cannot tell one feeder's traffic from
+    another's: every position lands in the same bucket, so the network map can
+    only ever draw a single coverage shape no matter how many people join.
+
+    Deliberately NOT the uuid this feeder already sends to adsb.lol or
+    airplanes.live — reusing one of those would hand our hub the feeder's
+    identity on those networks. It is a random id that means nothing anywhere
+    else, and the public globe only ever shows an anonymous alias for it.
+    """
+    try:
+        cur = open(UUID_FILE).read().strip()
+        if cur:
+            return cur
+    except OSError:
+        pass
+    new = str(uuidlib.uuid4())
+    with open(UUID_FILE, "w") as f:
+        f.write(new + "\n")
+    return new
+
+
+def glassdeck_connector():
+    return "%s,30004,beast_reduce_plus_out,uuid=%s" % (GLASSDECK_HOST, feeder_uuid())
 def web_port():
     """adsb.im app port — 80 on image installs, different on app installs."""
     return read_env(ENV_PATH).get("AF_WEBPORT") or "80"
@@ -126,12 +154,17 @@ def post_extra_env(value):
 def set_network(join):
     cur = read_extra_env()
     joined = GLASSDECK_HOST in cur
-    if join and joined:
+    want = glassdeck_connector() if join else None
+    if join and want in cur:
         print("already feeding the GLASSDECK network — nothing to do")
         return
     if not join and not joined:
         print("not currently feeding the GLASSDECK network — nothing to do")
         return
+    if join and joined:
+        # an older join carried no uuid, so the hub had no way to tell this
+        # feeder apart from any other — re-joining rewrites the entry
+        print("repairing the GLASSDECK connector (adding this feeder's id)…")
 
     lines = [l.strip() for l in re.split(r"\r?\n", cur) if l.strip()]
     if join:
@@ -139,24 +172,23 @@ def set_network(join):
             socket.gethostbyname(GLASSDECK_HOST)
         except OSError:
             print("  warning: %s does not resolve yet — readsb will keep retrying until it does" % GLASSDECK_HOST)
-        merged = False
-        for i, l in enumerate(lines):
-            if l.startswith("READSB_NET_CONNECTOR="):
-                lines[i] = l + ";" + GLASSDECK_CONNECTOR
-                merged = True
-                break
-        if not merged:
-            lines.append("READSB_NET_CONNECTOR=" + GLASSDECK_CONNECTOR)
-    else:
-        kept = []
-        for l in lines:
-            if l.startswith("READSB_NET_CONNECTOR="):
-                entries = [e for e in l.split("=", 1)[1].split(";") if GLASSDECK_HOST not in e and e.strip()]
-                if entries:
-                    kept.append("READSB_NET_CONNECTOR=" + ";".join(entries))
-            else:
-                kept.append(l)
-        lines = kept
+    # drop any existing GLASSDECK entry, then add the wanted one back on a join.
+    # Rebuilding rather than appending keeps a re-join idempotent AND lets it
+    # replace a stale entry instead of stacking a second connector to the hub.
+    kept, added = [], False
+    for l in lines:
+        if l.startswith("READSB_NET_CONNECTOR="):
+            entries = [e for e in l.split("=", 1)[1].split(";") if GLASSDECK_HOST not in e and e.strip()]
+            if join and not added:
+                entries.append(want)
+                added = True
+            if entries:
+                kept.append("READSB_NET_CONNECTOR=" + ";".join(entries))
+        else:
+            kept.append(l)
+    if join and not added:
+        kept.append("READSB_NET_CONNECTOR=" + want)
+    lines = kept
 
     print("%s the GLASSDECK network (via the feeder's own /expert endpoint)…" % ("joining" if join else "leaving"))
     post_extra_env("\r\n".join(lines))
