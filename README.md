@@ -35,6 +35,20 @@ The installer personalises everything automatically from your feeder's own confi
 station name, position, altitude, your enabled aggregators — and it *measures* your
 range-ring scale from your own 34-day reach record.
 
+## Try the beta
+
+The beta channel gets new features first — currently a load-time "holotable" intro
+and an in-dashboard channel switch. Stable is unaffected: nothing beta runs unless
+you opt in.
+
+```
+curl -sL https://raw.githubusercontent.com/debeers-labs/glassdeck/beta/install.sh | sudo bash -s -- --channel beta
+```
+
+Back to stable any time — re-run the normal install one-liner above. Your settings
+and history carry over both ways. Found a bug or have a request? There's a
+**Report a bug** button in Settings → Software, or open an issue here.
+
 ## Join the GLASSDECK network (optional)
 
 The dashboard's "GLASSDECK network" slot is a community aggregator with a public
