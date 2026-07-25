@@ -3,6 +3,29 @@
 All notable changes to the feeder dashboard. Update = re-run the install
 one-liner; your preferences live in your browser and survive.
 
+## v0.5.1 — 2026-07-26 (beta)
+
+- **Your network id can now be replaced** if it ever gets out — a pasted config,
+  a screenshot, a sold SD card. `sudo python3 /opt/adsb/glassdeck/gd_install.py
+  --rotate` retires the old id and mints a new one, carrying your coverage on
+  the globe, your place in the network and your Uplink access across. The old id
+  stops working at once. Until now the id was permanent, so a copy that escaped
+  could never be taken back except by cutting the feeder off entirely.
+- The id file is no longer world-readable on the feeder, and uninstalling now
+  warns you before it destroys the id (reinstalling mints a new one, which the
+  network reads as a different feeder).
+- **A compatibility check for after feeder-image updates**: `sudo python3
+  /opt/adsb/glassdeck/gd_install.py --check` probes the thirteen things this
+  dashboard assumes about your feeder — config paths, status endpoints, the
+  container name, the RRD archives, the webroot, cron, the network join — and
+  prints what still holds. Some breakages announce themselves; others just make
+  live data quietly disappear, and this catches those.
+- The Data sharing card now says whether it is showing **live** data or the
+  install-time snapshot, in amber when it has fallen back. It could previously
+  degrade to stale values with nothing to show it had.
+- Commands in Settings no longer wrap mid-path or get clipped — they were
+  readable, then briefly truncated, and are now shown in full at any width.
+
 ## v0.5.0 — 2026-07-25 (beta)
 
 - Settings gains a **GLASSDECK network** card: whether this feeder is on the
@@ -18,24 +41,6 @@ one-liner; your preferences live in your browser and survive.
 - The dashboard now learns whether it's feeding the network **live**, so the
   card and the invitation follow a join within a minute instead of waiting for
   the next update.
-- **A compatibility check for after feeder-image updates**: `sudo python3
-  /opt/adsb/glassdeck/gd_install.py --check` probes all thirteen things this
-  dashboard assumes about your feeder — config paths, status endpoints, the
-  container name, the RRD archives, the webroot, cron, the network join — and
-  prints what still holds. Some breakages announce themselves; others just make
-  live data quietly disappear, and this catches those.
-- The Data sharing card now says whether it is showing **live** data or the
-  install-time snapshot, in amber when it has fallen back. It could previously
-  degrade to stale values with no visible difference.
-- **Your network id can now be replaced** if it ever gets out — a pasted config,
-  a screenshot, a sold SD card. `sudo python3 /opt/adsb/glassdeck/gd_install.py
-  --rotate` retires the old id and mints a new one, carrying your coverage on
-  the globe, your place in the network and your Uplink access across. The old id
-  stops working at once. Until now the id was permanent, so a copy that escaped
-  could never be taken back.
-- The id file is no longer world-readable on the feeder, and uninstalling now
-  warns you before it destroys the id (reinstalling mints a new one, which the
-  network sees as a different feeder).
 - **Data sharing now shows what the feeder is actually doing.** Those rows were
   static markup: the aggregators were hardcoded as ticked whether or not you fed
   them, four of the five ticks moved when clicked and changed nothing, and the
