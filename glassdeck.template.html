@@ -120,6 +120,13 @@
 .gdp-big small{font-size:11px;color:var(--ink-faint);font-weight:400;margin-left:4px;}
 .gdp-sub{font-family:var(--mono);font-size:9px;color:var(--ink-faint);letter-spacing:0.06em;margin-top:3px;}
 .gdp-sub a{color:var(--ink-dim);}
+/* Its own line rather than trailing the sentence: in this column the phrase
+   wrapped mid-way with the underline running through the break. */
+.gdp-editlink{display:block;margin-top:3px;white-space:nowrap;}
+/* A shell command is one thing, not a sentence — wrapping it at whitespace
+   split it after "python3" and left the path stranded. One line that scrolls
+   if it must, with the copy button below doing the real work. */
+.gdp-cmd{display:block;white-space:pre;overflow-x:auto;margin:3px 0 8px;padding-bottom:2px;}
 .gdp-spark{width:100%;height:34px;display:block;margin-top:6px;}
 
 .gdp-bars{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
@@ -388,7 +395,7 @@
     </div>
     <div class="gdp-card">
       <h3>Data sharing</h3>
-      <div class="gdp-sub" id="set-sharing-lead"><span id="set-sharing-state">read-only</span><span id="olnk-agg-sep" style="display:none"> · </span><a id="olnk-agg" href="#" target="_blank" rel="noopener" style="display:none">edit in the feeder's own settings →</a></div>
+      <div class="gdp-sub" id="set-sharing-lead"><span id="set-sharing-state">read-only</span><a class="gdp-editlink" id="olnk-agg" href="#" target="_blank" rel="noopener" style="display:none">edit in the feeder's own settings →</a></div>
       <div id="set-sharing"></div>
       <div class="gdp-note" id="set-gdnet-note"></div>
     </div>
@@ -399,7 +406,7 @@
       <div class="gdp-note" id="gdn-body" style="margin-top:10px;"></div>
       <div class="gdp-note" id="gdn-cmdwrap" style="margin-top:12px;">
         <span id="gdn-cmdlabel"></span><br>
-        <code id="gdn-cmd"></code> <button class="gdp-win" id="gdn-copy" type="button">copy</button>
+        <code class="gdp-cmd" id="gdn-cmd"></code><button class="gdp-win" id="gdn-copy" type="button">copy</button>
       </div>
       <div class="gdp-note" id="gdn-uplink" style="margin-top:14px;"></div>
     </div>
@@ -431,12 +438,12 @@
       <div class="gdp-note" id="sw-channel" style="margin-top:16px;"></div>
       <div id="sw-switch-wrap" style="display:none;margin-top:8px;">
         <div class="gdp-note" id="sw-switch-what" style="margin-bottom:6px;"></div>
-        <code id="sw-switch-cmd"></code> <button class="gdp-win" id="sw-switch-copy" type="button">copy</button>
+        <code class="gdp-cmd" id="sw-switch-cmd"></code><button class="gdp-win" id="sw-switch-copy" type="button">copy</button>
       </div>
 
       <div class="gdp-note" style="margin-top:16px;">
         update to the newest on your current channel — your preferences and history survive:<br>
-        <code id="sw-cmd">curl -sL … | sudo bash</code> <button class="gdp-win" id="sw-copy" type="button">copy</button>
+        <code class="gdp-cmd" id="sw-cmd">curl -sL … | sudo bash</code><button class="gdp-win" id="sw-copy" type="button">copy</button>
       </div>
 
       <!-- how to actually run one of these commands -->
@@ -453,7 +460,7 @@
 
       <div class="gdp-note" style="margin-top:16px;">
         remove GLASSDECK entirely — feeder returns to exactly stock:<br>
-        <code id="sw-uncmd">sudo /opt/adsb/glassdeck/uninstall.sh</code> <button class="gdp-win" id="sw-copy-un" type="button">copy</button>
+        <code class="gdp-cmd" id="sw-uncmd">sudo /opt/adsb/glassdeck/uninstall.sh</code><button class="gdp-win" id="sw-copy-un" type="button">copy</button>
       </div>
     </div>
   </div>
@@ -495,7 +502,7 @@
        one stream, far past what your own antenna hears.</p>
     <div class="gdni-cmd" id="gdni-cmdwrap">
       <div class="gdp-note" style="margin:0 0 6px">run this on the feeder:</div>
-      <code id="gdni-cmd">sudo python3 /opt/adsb/glassdeck/gd_install.py --join</code>
+      <code class="gdp-cmd" id="gdni-cmd">sudo python3 /opt/adsb/glassdeck/gd_install.py --join</code>
       <button class="gdp-win" id="gdni-copy" type="button">copy</button>
       <div class="gdp-note" style="margin-top:8px">
         then reload this page. Not now? Settings → GLASSDECK network has it whenever you want.
@@ -5666,9 +5673,7 @@ window.GDCore = (function(){
       document.getElementById('olnk-setup').href = imRoot + 'setup';
       const agg = document.getElementById('olnk-agg');
       agg.href = imRoot + 'aggregators';
-      // both hidden in sample builds, which have no feeder to link to
-      agg.style.display = 'inline';
-      document.getElementById('olnk-agg-sep').style.display = 'inline';
+      agg.style.display = 'block';   // hidden in sample builds, no feeder to link to
       document.getElementById('olnk-sdr').href = imRoot + 'sdr_setup';
       document.getElementById('olnk-sys').href = imRoot + 'systemmgmt';
       setInterval(async () => { const a = await tryFetch(liveBase + 'aircraft.json', 6000); if (a) curAircraft = a; }, 2000);
