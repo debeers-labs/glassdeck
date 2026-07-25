@@ -6,12 +6,16 @@ dashboard template, so every station gets its own name, position, aggregator
 list, and a measured range — no hand-editing.
 
 Usage (as root, with glassdeck.template.html + gd_exporter.py in the same dir):
-    python3 gd_install.py [--town "Town Name"] [--join | --leave]
+    python3 gd_install.py [--town "Town Name"] [--join | --leave | --rotate]
 
 --join / --leave (optional): feed a copy of your traffic to the GLASSDECK
 network aggregator (additive — your existing aggregators are untouched).
 Applied THROUGH the adsb.im app's own /expert endpoint, never by editing its
 files; briefly restarts the feed containers, exactly like any settings change.
+
+--rotate: mint a new network id and retire the old one, for when the current
+one may have been seen by someone else. Coverage history, map alias and Uplink
+access all follow the feeder across.
 
 What it touches (and nothing else):
     /opt/adsb/glassdeck/          — persistent copies (this dir)
@@ -29,6 +33,63 @@ CONTAINER = "ultrafeeder"
 
 GLASSDECK_HOST = "feed.debeers-labs.xyz"
 UUID_FILE = os.path.join(BASE, "UUID")
+
+
+GLASSDECK_API = "https://globe.debeers-labs.xyz/api/uplink"
+
+
+def rotate_uuid():
+    """Replace this feeder's network id, keeping the standing it has earned.
+
+    Why this exists: the id is a bearer credential — anyone holding it can
+    authorise a machine to pull the Uplink as this feeder. Until now it was
+    minted once and permanent, so a copy that got out (a pasted config, a shared
+    screenshot, a sold SD card) could never be taken back except by banning the
+    feeder outright, which would punish the victim.
+
+    The connector is switched FIRST and the network told afterwards, deliberately
+    — the reverse order would leave the feeder briefly sending a credential the
+    hub had already revoked, and it would stop being counted. Done this way the
+    worst case is a rotation the hub never hears about, which costs nothing: the
+    new id simply looks like a new feeder, and re-running this repairs it.
+    """
+    old = feeder_uuid()
+    new = str(uuidlib.uuid4())
+    if GLASSDECK_HOST not in read_extra_env():
+        sys.exit("this feeder is not on the GLASSDECK network — nothing to rotate.\n"
+                 "  (join first: sudo python3 gd_install.py --join)")
+
+    print("rotating this feeder's GLASSDECK id…")
+    try:
+        with open(UUID_FILE + ".prev", "w") as f:
+            f.write(old + "\n")
+        os.chmod(UUID_FILE + ".prev", 0o600)
+    except OSError:
+        pass
+    with open(UUID_FILE, "w") as f:
+        f.write(new + "\n")
+    os.chmod(UUID_FILE, 0o600)
+
+    set_network(True)          # rebuilds the connector around the new id
+
+    # Now tell the hub, so the coverage map and the earned eligibility follow
+    # the feeder instead of restarting from nothing.
+    body = json.dumps({"old": old, "new": new}).encode()
+    req = urllib.request.Request(GLASSDECK_API + "/rotate", data=body,
+                                 headers={"Content-Type": "application/json"})
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                if json.load(r).get("ok"):
+                    print("done — the network moved your coverage and access to the new id.")
+                    return
+        except Exception as e:
+            print("  (attempt %d: %s)" % (attempt + 1, e))
+        time.sleep(5)
+    print("\nThe id was rotated on this feeder and the connector is using it, but the\n"
+          "network did not confirm the change. Nothing is broken — this feeder keeps\n"
+          "feeding — but it will appear as a new feeder on the map until it is told.\n"
+          "Re-run this command once the network is reachable to repair that.")
 
 
 def feeder_uuid():
@@ -52,6 +113,7 @@ def feeder_uuid():
     new = str(uuidlib.uuid4())
     with open(UUID_FILE, "w") as f:
         f.write(new + "\n")
+    os.chmod(UUID_FILE, 0o600)   # a bearer credential, not world-readable
     return new
 
 
@@ -237,6 +299,8 @@ def main():
         set_network(True)
     elif "--leave" in sys.argv:
         set_network(False)
+    elif "--rotate" in sys.argv:
+        rotate_uuid()
 
     env = read_env(ENV_PATH)
     station = env.get("MLAT_SITE_NAME") or "MY-FEEDER"

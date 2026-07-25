@@ -18,6 +18,15 @@ one-liner; your preferences live in your browser and survive.
 - The dashboard now learns whether it's feeding the network **live**, so the
   card and the invitation follow a join within a minute instead of waiting for
   the next update.
+- **Your network id can now be replaced** if it ever gets out — a pasted config,
+  a screenshot, a sold SD card. `sudo python3 /opt/adsb/glassdeck/gd_install.py
+  --rotate` retires the old id and mints a new one, carrying your coverage on
+  the globe, your place in the network and your Uplink access across. The old id
+  stops working at once. Until now the id was permanent, so a copy that escaped
+  could never be taken back.
+- The id file is no longer world-readable on the feeder, and uninstalling now
+  warns you before it destroys the id (reinstalling mints a new one, which the
+  network sees as a different feeder).
 - **Data sharing now shows what the feeder is actually doing.** Those rows were
   static markup: the aggregators were hardcoded as ticked whether or not you fed
   them, four of the five ticks moved when clicked and changed nothing, and the
