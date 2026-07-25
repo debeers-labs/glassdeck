@@ -17,8 +17,14 @@ one-liner; your preferences live in your browser and survive.
   Dismissing it is permanent — the Settings card carries the same offer.
 - The dashboard now learns whether it's feeding the network **live**, so the
   card and the invitation follow a join within a minute instead of waiting for
-  the next update. The read-only "GLASSDECK network" tick under Data sharing
-  now explains itself instead of looking broken.
+  the next update.
+- **Data sharing now shows what the feeder is actually doing.** Those rows were
+  static markup: the aggregators were hardcoded as ticked whether or not you fed
+  them, four of the five ticks moved when clicked and changed nothing, and the
+  one honest row was the only one that looked broken. Every row is now read from
+  the feeder each minute — your real aggregators, whether each gets MLAT, and
+  your real MLAT privacy setting — and all of them are read-only, with a link to
+  the feeder's own settings page for changing them.
 
 ## v0.4.0 — 2026-07-24 (beta)
 

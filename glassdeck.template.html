@@ -119,6 +119,7 @@
 .gdp-big{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--amber);line-height:1.1;font-variant-numeric:tabular-nums;}
 .gdp-big small{font-size:11px;color:var(--ink-faint);font-weight:400;margin-left:4px;}
 .gdp-sub{font-family:var(--mono);font-size:9px;color:var(--ink-faint);letter-spacing:0.06em;margin-top:3px;}
+.gdp-sub a{color:var(--ink-dim);}
 .gdp-spark{width:100%;height:34px;display:block;margin-top:6px;}
 
 .gdp-bars{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
@@ -217,6 +218,8 @@
 .gdp-field input:focus{outline:none;border-color:var(--holo);}
 .gdp-check{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--ink-dim);padding:6px 0;}
 .gdp-check input{accent-color:#e265d8;width:14px;height:14px;}
+.gdp-check input:disabled{opacity:0.85;}
+.gdp-check .rs{margin-left:auto;font-size:9px;color:var(--ink-faint);letter-spacing:0.06em;}
 .gdp-save{
   font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.06em;color:#2a0e2a;
   background:var(--magenta);border:none;border-radius:2px;padding:10px 22px;cursor:pointer;
@@ -385,11 +388,8 @@
     </div>
     <div class="gdp-card">
       <h3>Data sharing</h3>
-      <label class="gdp-check"><input type="checkbox" checked> adsb.lol</label>
-      <label class="gdp-check"><input type="checkbox" checked> adsb.fi</label>
-      <label class="gdp-check"><input type="checkbox" checked> airplanes.live</label>
-      <label class="gdp-check"><input type="checkbox" id="set-gdnet" disabled> GLASSDECK network</label>
-      <label class="gdp-check"><input type="checkbox"> MLAT privacy (hide from public maps)</label>
+      <div class="gdp-sub" id="set-sharing-lead">read-only — what this feeder is set to share<span id="olnk-agg-sep" style="display:none"> · </span><a id="olnk-agg" href="#" target="_blank" rel="noopener" style="display:none">edit in the feeder's own settings →</a></div>
+      <div id="set-sharing"></div>
       <div class="gdp-note" id="set-gdnet-note"></div>
     </div>
 
@@ -5463,14 +5463,45 @@ window.GDCore = (function(){
     const u = (CONFIG.uplinks || []).find(x => x.name === 'GLASSDECK');
     return !!(u && u.feed);
   }
-  function renderGdNet(){
+  // The Data sharing card is a MIRROR, not a control panel — every row is
+  // disabled on purpose. adsb.im owns this configuration, and the only way a
+  // browser can write it is /expert, which replaces the entire extra-env box in
+  // one submission; the page cannot read what is currently in that box, so a
+  // tick would be submitting a guess at the user's other settings.
+  //
+  // Until now only the GLASSDECK row admitted that. The other four were static
+  // markup — the three aggregators hardcoded `checked`, so the card claimed them
+  // whether or not the feeder fed them, and all four moved when clicked and
+  // changed nothing (Save only ever sends name/lat/lon/alt). One honest control
+  // that looked broken, four broken ones that looked fine.
+  function renderSharing(){
+    const box = document.getElementById('set-sharing');
+    if (!box) return;
     const joined = gdnJoined();
-    const cb = document.getElementById('set-gdnet');
-    if (cb) cb.checked = joined;
+    const share = liveSystem && liveSystem.sharing;
+    // live first, then the install-time snapshot — a feeder whose exporter
+    // predates this key still gets the right names, just not later changes
+    const aggs = (share && share.aggs) || (CONFIG.uplinks || []).filter(u => u.name !== 'GLASSDECK');
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const row = (on, label, side, id) =>
+      '<label class="gdp-check"><input type="checkbox"' + (id ? ' id="' + id + '"' : '')
+      + (on ? ' checked' : '') + ' disabled> ' + esc(label)
+      + (side ? '<span class="rs">' + side + '</span>' : '') + '</label>';
+
+    const rows = aggs.map(u => row(!!u.feed, u.name, u.mlat ? 'feed + mlat' : 'feed'));
+    rows.push(row(joined, 'GLASSDECK network', joined ? 'feed' : 'not joined', 'set-gdnet'));
+    if (share) rows.push(row(!!share.mlatPrivacy, 'MLAT privacy (hide from public maps)'));
+    box.innerHTML = rows.join('');
+
     const note = document.getElementById('set-gdnet-note');
     if (note) note.innerHTML = joined
-      ? 'shown for reference — the GLASSDECK network is joined and left from the card beside this one.'
-      : 'not joined. see the GLASSDECK network card for what it is and how.';
+      ? 'the GLASSDECK network is joined and left from the card beside this one; everything else here is changed in the feeder\'s own settings.'
+      : 'see the GLASSDECK network card for what that one is and how to join; everything else here is changed in the feeder\'s own settings.';
+  }
+
+  function renderGdNet(){
+    const joined = gdnJoined();
+    renderSharing();
 
     const st = document.getElementById('gdn-state');
     const body = document.getElementById('gdn-body');
@@ -5621,6 +5652,11 @@ window.GDCore = (function(){
       const imRoot = location.protocol + '//' + location.hostname + ((CONFIG.webPort || 80) === 80 ? '' : ':' + CONFIG.webPort) + '/';
       document.getElementById('orig-link').href = imRoot;
       document.getElementById('olnk-setup').href = imRoot + 'setup';
+      const agg = document.getElementById('olnk-agg');
+      agg.href = imRoot + 'aggregators';
+      // both hidden in sample builds, which have no feeder to link to
+      agg.style.display = 'inline';
+      document.getElementById('olnk-agg-sep').style.display = 'inline';
       document.getElementById('olnk-sdr').href = imRoot + 'sdr_setup';
       document.getElementById('olnk-sys').href = imRoot + 'systemmgmt';
       setInterval(async () => { const a = await tryFetch(liveBase + 'aircraft.json', 6000); if (a) curAircraft = a; }, 2000);
