@@ -47,6 +47,21 @@ sudo python3 /opt/adsb/glassdeck/gd_install.py --join     # start feeding
 sudo python3 /opt/adsb/glassdeck/gd_install.py --leave    # stop feeding
 ```
 
+### Uplink — pull the network back
+
+Feeders on the network can pull **every feeder's traffic** as one Beast stream,
+far past what one antenna hears. Access is earned by feeding and lapses on its
+own seven days after you stop — nothing to apply for, nothing to revoke.
+
+> **Never point Uplink at the instance that feeds your aggregators.** readsb
+> merges network input into the same picture it forwards outward, so your site
+> would claim aircraft it never heard — indistinguishable from a spoofed
+> receiver, and grounds for a ban. Run it in a separate instance that feeds
+> nobody.
+
+Setup, a working recipe and a status check:
+<https://globe.debeers-labs.xyz/uplink.html>
+
 The change is applied through the adsb.im app's own Expert mechanism (one
 `READSB_NET_CONNECTOR` environment line), so it's visible and editable in the
 original UI too, and it briefly restarts the feed containers like any settings

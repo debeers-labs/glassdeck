@@ -111,6 +111,36 @@ def http_json(url, timeout=4):
 # adsb.im's own status APIs — the same data its "You are feeding" table shows
 AGG_STATUS_KEYS = {"adsb.lol": "adsblol", "adsb.fi": "adsbfi", "airplanes.live": "alive"}
 
+GLASSDECK_HOST = "feed.debeers-labs.xyz"
+
+
+def gd_joined():
+    """Is this feeder feeding the GLASSDECK network right now?
+
+    The dashboard otherwise learns this only from CONFIG, which is baked at
+    install time — so a feeder that joins would keep being invited to join
+    until the installer happened to run again. Published here it goes stale
+    within a minute instead.
+
+    Substring test on the raw config, deliberately: the installer parses the
+    extra-env properly because it has to REWRITE it, but all we need is whether
+    the host appears at all, and a loose read cannot corrupt anything.
+    """
+    for path, key in (("/opt/adsb/config/config.json", "_ADSBIM_STATE_EXTRA_ENV"),
+                      ("/opt/adsb/config/.env", None)):
+        try:
+            raw = open(path).read()
+        except OSError:
+            continue
+        if key:
+            try:
+                raw = json.loads(raw).get(key) or ""
+            except ValueError:
+                continue
+        if GLASSDECK_HOST in raw:
+            return True
+    return False
+
 
 def export_system(out_dir):
     temp_raw = read_first("/sys/class/thermal/thermal_zone0/temp", "0")
@@ -135,6 +165,7 @@ def export_system(out_dir):
     atomic_write(os.path.join(out_dir, "system.json"), {
         "base": base,
         "uplinks": uplinks,
+        "gdNet": {"joined": gd_joined()},
         "ts": int(__import__("time").time()),
         "tempC": round(int(temp_raw) / 1000, 1),
         "load1": load1,

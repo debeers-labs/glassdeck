@@ -3,6 +3,23 @@
 All notable changes to the feeder dashboard. Update = re-run the install
 one-liner; your preferences live in your browser and survive.
 
+## v0.5.0 — 2026-07-25 (beta)
+
+- Settings gains a **GLASSDECK network** card: whether this feeder is on the
+  shared globe, what joining does, and the join/leave command with a copy
+  button. Joining is additive and reversible — your existing aggregators are
+  never touched.
+- **Uplink**: feeders on the network can pull every feeder's traffic back as
+  one stream, far past what one antenna hears. The card links to the setup
+  guide, including the warning that it must never go into the instance that
+  feeds your aggregators.
+- A one-time invitation on first load if the feeder isn't on the network.
+  Dismissing it is permanent — the Settings card carries the same offer.
+- The dashboard now learns whether it's feeding the network **live**, so the
+  card and the invitation follow a join within a minute instead of waiting for
+  the next update. The read-only "GLASSDECK network" tick under Data sharing
+  now explains itself instead of looking broken.
+
 ## v0.4.0 — 2026-07-24 (beta)
 
 - Load-time intro (beta channel only): a holographic globe forms, finds this
