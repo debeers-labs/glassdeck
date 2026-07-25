@@ -227,6 +227,9 @@
   background:rgba(232,236,241,0.04);border:1px solid var(--line);border-radius:2px;padding:8px 10px;
 }
 .gdp-field input:focus{outline:none;border-color:var(--holo);}
+/* Reads as a value on display, not as an input you failed to type into. */
+.gdp-field input:disabled{color:var(--ink-dim);background:transparent;
+  border-style:dashed;cursor:default;}
 .gdp-check{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--ink-dim);padding:6px 0;}
 .gdp-check input{accent-color:#e265d8;width:14px;height:14px;}
 .gdp-check input:disabled{opacity:0.85;}
@@ -416,14 +419,17 @@
     </div>
     <div class="gdp-card">
       <h3>Receiver</h3>
-      <div class="gdp-field"><label for="set-gain">SDR gain (dB)</label><input id="set-gain" inputmode="decimal" value=""></div>
+      <div class="gdp-field"><label for="set-gain">SDR gain (dB)</label><input id="set-gain" inputmode="decimal" value="" disabled></div>
+      <div class="gdp-sub">read-only — gain is set on the feeder's own <a href="/sdr_setup" id="olnk-sdr2">SDR page</a></div>
       <div class="gdp-sub" id="set-recv-sub">readsb —</div>
       <div style="margin-top:16px;">
         <button class="gdp-save" id="save-btn">Save changes</button><span id="save-status"></span>
       </div>
       <div class="gdp-note" id="settings-note">
-        Save submits through the feeder's own software (same as its setup page) — applying
-        position changes briefly restarts the feed containers. originals:
+        Save covers station name, position and altitude only — it submits them through the
+        feeder's own software (same as its setup page), and applying a position change
+        briefly restarts the feed containers. Everything else on this screen is read-only
+        and is changed on the pages it belongs to. originals:
         <a href="/setup" id="olnk-setup">basic setup</a> ·
         <a href="/sdr_setup" id="olnk-sdr">sdr</a> ·
         <a href="/systemmgmt" id="olnk-sys">system</a><br>
@@ -5679,6 +5685,7 @@ window.GDCore = (function(){
       agg.href = imRoot + 'aggregators';
       agg.style.display = 'block';   // hidden in sample builds, no feeder to link to
       document.getElementById('olnk-sdr').href = imRoot + 'sdr_setup';
+      document.getElementById('olnk-sdr2').href = imRoot + 'sdr_setup';
       document.getElementById('olnk-sys').href = imRoot + 'systemmgmt';
       setInterval(async () => { const a = await tryFetch(liveBase + 'aircraft.json', 6000); if (a) curAircraft = a; }, 2000);
       setInterval(async () => { const s = await tryFetch(liveBase + 'stats.json', 8000); if (s){ curStats = s; pushHistory(); } }, 10000);

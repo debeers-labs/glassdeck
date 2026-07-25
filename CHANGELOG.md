@@ -3,6 +3,16 @@
 All notable changes to the feeder dashboard. Update = re-run the install
 one-liner; your preferences live in your browser and survive.
 
+## v0.5.2 — 2026-07-26 (beta)
+
+- **The SDR gain box did nothing.** It was editable, it was filled in from your
+  receiver, and Save ignored it — then reported "applied by the feeder" anyway,
+  because the other fields on that card had gone through. It is now read-only,
+  showing your live gain, and points at the feeder's own SDR page where gain is
+  actually set. Same fault as the data-sharing ticks in v0.5.1, one card over.
+- The note beside Save now says what Save actually submits — station name,
+  position and altitude — instead of implying it covers the whole screen.
+
 ## v0.5.1 — 2026-07-26 (beta)
 
 - **Your network id can now be replaced** if it ever gets out — a pasted config,
