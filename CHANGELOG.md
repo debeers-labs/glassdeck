@@ -18,6 +18,15 @@ one-liner; your preferences live in your browser and survive.
 - The dashboard now learns whether it's feeding the network **live**, so the
   card and the invitation follow a join within a minute instead of waiting for
   the next update.
+- **A compatibility check for after feeder-image updates**: `sudo python3
+  /opt/adsb/glassdeck/gd_install.py --check` probes all thirteen things this
+  dashboard assumes about your feeder — config paths, status endpoints, the
+  container name, the RRD archives, the webroot, cron, the network join — and
+  prints what still holds. Some breakages announce themselves; others just make
+  live data quietly disappear, and this catches those.
+- The Data sharing card now says whether it is showing **live** data or the
+  install-time snapshot, in amber when it has fallen back. It could previously
+  degrade to stale values with no visible difference.
 - **Your network id can now be replaced** if it ever gets out — a pasted config,
   a screenshot, a sold SD card. `sudo python3 /opt/adsb/glassdeck/gd_install.py
   --rotate` retires the old id and mints a new one, carrying your coverage on

@@ -6,7 +6,7 @@ dashboard template, so every station gets its own name, position, aggregator
 list, and a measured range — no hand-editing.
 
 Usage (as root, with glassdeck.template.html + gd_exporter.py in the same dir):
-    python3 gd_install.py [--town "Town Name"] [--join | --leave | --rotate]
+    python3 gd_install.py [--town "Town Name"] [--join | --leave | --rotate | --check]
 
 --join / --leave (optional): feed a copy of your traffic to the GLASSDECK
 network aggregator (additive — your existing aggregators are untouched).
@@ -16,6 +16,11 @@ files; briefly restarts the feed containers, exactly like any settings change.
 --rotate: mint a new network id and retire the old one, for when the current
 one may have been seen by someone else. Coverage history, map alias and Uplink
 access all follow the feeder across.
+
+--check: probe every assumption this dashboard makes about the feeder image —
+config paths, HTTP endpoints, the container name, RRD archives, the webroot —
+and report what still holds. Run it after a feeder image update: some breakages
+announce themselves, others just make live data quietly disappear.
 
 What it touches (and nothing else):
     /opt/adsb/glassdeck/          — persistent copies (this dir)
@@ -264,6 +269,199 @@ def set_network(join):
     print("could not confirm the change — check the adsb.im Expert page")
 
 
+# ---------------- --check: is every assumption we make about the image still true?
+# GLASSDECK reads and writes a handful of things that belong to the feeder image:
+# config files, HTTP endpoints, a container name, RRD paths, a tmpfs webroot.
+# None of those are contracts — they are just where things happen to live today,
+# and three of them have already moved once (hence the fallbacks in read_env,
+# read_extra_env and tar1090_port). Some breakages are obvious: the dashboard
+# 404s. Others are silent — a renamed status endpoint just makes the live data
+# quietly disappear and the page falls back to install-time values that still
+# look plausible. This turns the silent ones into a line of output.
+
+PASS, WARN, FAIL = "ok", "warn", "FAIL"
+
+# these mirror gd_exporter.py, which is what actually consumes them at runtime —
+# duplicated rather than imported so each script stays independently removable
+RRD_BASE = "/run/collectd/localhost"
+AGG_STATUS_KEYS = {"adsb.lol": "adsblol", "adsb.fi": "adsbfi", "airplanes.live": "alive"}
+
+
+def http_probe(url, timeout=5):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, r.read()
+    except Exception as e:
+        return None, str(e).encode()
+
+
+def run_check():
+    env = read_env(ENV_PATH)
+    port, t_port = web_port(), tar1090_port(env)
+    results = []
+
+    def probe(name, fn):
+        try:
+            state, detail = fn()
+        except Exception as e:
+            state, detail = FAIL, "raised %s: %s" % (type(e).__name__, e)
+        results.append((name, state, detail))
+
+    def c_env():
+        if not env:
+            return FAIL, "cannot read %s" % ENV_PATH
+        if not env.get("FEEDER_ULTRAFEEDER_CONFIG"):
+            return FAIL, "FEEDER_ULTRAFEEDER_CONFIG missing — aggregator list unreadable"
+        return PASS, "%d keys" % len(env)
+
+    def c_aggs():
+        ups = [u for u in parse_uplinks(env.get("FEEDER_ULTRAFEEDER_CONFIG", ""))
+               if u["name"] != "GLASSDECK"]
+        if not ups:
+            return FAIL, "no aggregators parsed — the config format may have changed"
+        return PASS, ", ".join(u["name"] for u in ups)
+
+    def c_extra():
+        cur = read_extra_env()
+        where = "config.json" if os.path.exists(CONFIG_JSON) else ".env"
+        if cur is None:
+            return FAIL, "unreadable — join/leave/rotate would fail"
+        return PASS, "%s, %d chars" % (where, len(cur))
+
+    def c_webapi():
+        st, body = http_probe("http://127.0.0.1:%s/api/base_info" % port)
+        if st != 200:
+            return FAIL, "GET /api/base_info -> %s" % (st or body.decode()[:60])
+        try:
+            d = json.loads(body)
+        except ValueError:
+            return FAIL, "base_info is not JSON any more"
+        missing = [k for k in ("name", "lat", "lon", "alt") if k not in d]
+        return (WARN, "missing %s" % missing) if missing else (PASS, "name/lat/lon/alt present")
+
+    def c_aggstatus():
+        good = []
+        for name, key in AGG_STATUS_KEYS.items():
+            st, body = http_probe("http://127.0.0.1:%s/api/status/%s" % (port, key))
+            if st == 200 and b'"beast"' in body:
+                good.append(name)
+        if not good:
+            return FAIL, "no /api/status/<agg> responded — live feed health is dark"
+        if len(good) < len(AGG_STATUS_KEYS):
+            return WARN, "only %s responded" % ", ".join(good)
+        return PASS, "%d aggregators reporting" % len(good)
+
+    def c_webroot():
+        if not os.path.isdir(RUN_WEBROOT):
+            return FAIL, "%s does not exist — nothing is served" % RUN_WEBROOT
+        if not os.path.exists(os.path.join(RUN_WEBROOT, "glassdeck.html")):
+            return WARN, "webroot exists but the page is not in it (self-heal runs each minute)"
+        return PASS, RUN_WEBROOT
+
+    def c_served():
+        url = "http://127.0.0.1:%s/chunks/glassdeck.html" % t_port
+        st, body = http_probe(url)
+        if st != 200:
+            return FAIL, "GET :%s/chunks/glassdeck.html -> %s" % (t_port, st or "no answer")
+        return PASS, "%d KB on :%s" % (len(body) // 1024, t_port)
+
+    def c_exporter():
+        p = os.path.join(RUN_WEBROOT, "gd-data", "system.json")
+        try:
+            d = json.load(open(p))
+        except (OSError, ValueError) as e:
+            return FAIL, "no readable system.json (%s)" % type(e).__name__
+        age = int(time.time() - d.get("ts", 0))
+        if age > 180:
+            return FAIL, "stale by %ds — is the exporter cron running?" % age
+        bits = []
+        if not d.get("sharing", {}).get("aggs"):
+            bits.append("sharing.aggs empty (Data sharing card falls back to install-time)")
+        if not d.get("uplinks"):
+            bits.append("uplinks empty")
+        return (WARN, "; ".join(bits)) if bits else (PASS, "%ds old, complete" % age)
+
+    def c_rrd():
+        rrd = f"{RRD_BASE}/dump1090-localhost/dump1090_messages-local_accepted.rrd"
+        out = subprocess.run(["docker", "exec", CONTAINER, "rrdtool", "xport", "--json",
+                              "-s", "-1h", "--step", "300",
+                              f"DEF:a={rrd}:value:AVERAGE", "XPORT:a:v"],
+                             capture_output=True, text=True, timeout=30)
+        if out.returncode != 0:
+            return FAIL, "rrdtool in '%s' failed — history graphs will be empty" % CONTAINER
+        return PASS, "archives readable in '%s'" % CONTAINER
+
+    def c_cron():
+        tab = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+        ours = [l for l in tab.splitlines() if "glassdeck" in l or "gd_exporter" in l]
+        if len(ours) < 3:
+            return FAIL, "%d of 3 required cron lines present — re-run the installer" % len(ours)
+        return PASS, "%d lines" % len(ours)
+
+    def c_identity():
+        if not os.path.exists(UUID_FILE):
+            return WARN, "no network id yet (created on --join)"
+        mode = os.stat(UUID_FILE).st_mode & 0o777
+        if mode != 0o600:
+            return WARN, "id file is mode %o — should be 600" % mode
+        return PASS, "present, mode 600"
+
+    def c_network():
+        if GLASSDECK_HOST not in read_extra_env():
+            return WARN, "not feeding the GLASSDECK network (join with --join)"
+        want = glassdeck_connector()
+        if want not in read_extra_env():
+            return WARN, "connector present but does not carry this feeder's id — re-run --join"
+        return PASS, "joined, connector carries this feeder's id"
+
+    def c_hub():
+        if GLASSDECK_HOST not in read_extra_env():
+            return PASS, "not joined — nothing to reach"
+        st, body = http_probe("%s/status?uuid=%s" % (GLASSDECK_API, feeder_uuid()), timeout=10)
+        if st != 200:
+            return WARN, "network unreachable (%s) — local feeding is unaffected" % (st or "timeout")
+        d = json.loads(body)
+        if not d.get("known"):
+            return WARN, "the network does not recognise this id yet"
+        if d.get("rotated_away"):
+            return FAIL, "this id was rotated away — run --rotate to re-sync"
+        return PASS, "recognised, eligible=%s" % d.get("eligible")
+
+    for name, fn in [
+        ("feeder config (.env)", c_env),
+        ("aggregator list", c_aggs),
+        ("expert extra-env", c_extra),
+        ("adsb.im web api", c_webapi),
+        ("aggregator status api", c_aggstatus),
+        ("tar1090 webroot", c_webroot),
+        ("dashboard served", c_served),
+        ("exporter output", c_exporter),
+        ("rrd archives", c_rrd),
+        ("cron lines", c_cron),
+        ("network id", c_identity),
+        ("network join", c_network),
+        ("network reachable", c_hub),
+    ]:
+        probe(name, fn)
+
+    ver = (env.get("AF_FEEDER_VERSION") or env.get("AF_FEEDER_INITIAL_VERSION")
+           or "unknown image")
+    print("\nGLASSDECK compatibility check — %s\n" % ver)
+    for name, state, detail in results:
+        print("  %-5s %-24s %s" % (state, name, detail))
+    bad = [n for n, s, _ in results if s == FAIL]
+    warn = [n for n, s, _ in results if s == WARN]
+    print()
+    if bad:
+        print("%d BROKEN: %s" % (len(bad), ", ".join(bad)))
+        print("Your feeding to other aggregators is unaffected — GLASSDECK sits beside it.")
+    elif warn:
+        print("%d to look at: %s" % (len(warn), ", ".join(warn)))
+    else:
+        print("All %d checks passed." % len(results))
+    return 1 if bad else 0
+
+
 def measure_range_km():
     """Round the station's real 34-day max range up to a friendly ring scale."""
     try:
@@ -281,6 +479,8 @@ def measure_range_km():
 
 
 def main():
+    if "--check" in sys.argv:
+        sys.exit(run_check())
     # town is cosmetic and not in .env, so remember it across updates the same
     # way CHANNEL is: --town writes it, a plain update reuses the stored value
     TOWN_FILE = os.path.join(BASE, "TOWN")

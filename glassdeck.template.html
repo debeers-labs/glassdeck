@@ -388,7 +388,7 @@
     </div>
     <div class="gdp-card">
       <h3>Data sharing</h3>
-      <div class="gdp-sub" id="set-sharing-lead">read-only — what this feeder is set to share<span id="olnk-agg-sep" style="display:none"> · </span><a id="olnk-agg" href="#" target="_blank" rel="noopener" style="display:none">edit in the feeder's own settings →</a></div>
+      <div class="gdp-sub" id="set-sharing-lead"><span id="set-sharing-state">read-only</span><span id="olnk-agg-sep" style="display:none"> · </span><a id="olnk-agg" href="#" target="_blank" rel="noopener" style="display:none">edit in the feeder's own settings →</a></div>
       <div id="set-sharing"></div>
       <div class="gdp-note" id="set-gdnet-note"></div>
     </div>
@@ -5492,6 +5492,18 @@ window.GDCore = (function(){
     rows.push(row(joined, 'GLASSDECK network', joined ? 'feed' : 'not joined', 'set-gdnet'));
     if (share) rows.push(row(!!share.mlatPrivacy, 'MLAT privacy (hide from public maps)'));
     box.innerHTML = rows.join('');
+
+    // Say WHICH of the two sources this is. Without it the fallback is
+    // invisible: if the feeder image ever renames the config key the exporter
+    // reads, this card would quietly revert to the install-time snapshot and
+    // still read as current — the same kind of confident-but-stale display
+    // these rows were rebuilt to stop being.
+    const lead = document.getElementById('set-sharing-state');
+    if (lead){
+      lead.textContent = share ? 'read-only — live from the feeder'
+                               : 'read-only — as of install; live status unavailable';
+      lead.style.color = share ? '' : 'var(--amber)';
+    }
 
     const note = document.getElementById('set-gdnet-note');
     if (note) note.innerHTML = joined
