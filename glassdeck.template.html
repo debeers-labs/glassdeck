@@ -123,10 +123,14 @@
 /* Its own line rather than trailing the sentence: in this column the phrase
    wrapped mid-way with the underline running through the break. */
 .gdp-editlink{display:block;margin-top:3px;white-space:nowrap;}
-/* A shell command is one thing, not a sentence — wrapping it at whitespace
-   split it after "python3" and left the path stranded. One line that scrolls
-   if it must, with the copy button below doing the real work. */
-.gdp-cmd{display:block;white-space:pre;overflow-x:auto;margin:3px 0 8px;padding-bottom:2px;}
+/* Commands must always be readable IN FULL. An earlier attempt put them on one
+   scrolling line, which on macOS (no persistent scrollbar) silently truncated
+   them — "…gd_install.py" with the "--leave" cut off is not an untidy command,
+   it is a different and wrong one. So: wrap, preferring spaces, and break
+   inside a token only when the token itself is too long for the column, which
+   is what a bare URL does. Never clipped, never overflowing. */
+.gdp-cmd{display:block;white-space:pre-wrap;overflow-wrap:anywhere;
+  margin:3px 0 8px;padding-bottom:2px;}
 .gdp-spark{width:100%;height:34px;display:block;margin-top:6px;}
 
 .gdp-bars{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
