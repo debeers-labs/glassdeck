@@ -89,6 +89,7 @@
 }
 .gdp-detail.show{display:block;}
 .gdp-detail b{color:var(--magenta);font-size:12px;letter-spacing:0.06em;display:block;margin-bottom:2px;}
+.gdp-detail .rt{color:var(--holo);display:block;margin-bottom:3px;}
 .gdp-detail span{color:var(--ink);}
 
 .gdp-strip{
@@ -6407,6 +6408,60 @@ window.GDCore = (function(){
 
   // ---------- live plane pool keyed by hex ----------
   const planePool = new Map();
+  // ---------- flight routes (adsb.im's routeset service) ----------
+  // A receiver hears a callsign, never a route — that lookup has to come from
+  // somewhere off-feeder. This uses adsb.im's own service, which Dirk built,
+  // hosts, and asked for in his review of v0.1.
+  //
+  // One request per newly selected aircraft, cached for the browser session, so
+  // clicking around the sky costs nothing after the first look at each flight.
+  // The page asks, not the feeder: no new outbound dependency is added to the
+  // receiver itself, and a feeder with no internet simply shows no route line.
+  const ROUTE_API = 'https://adsb.im/api/0/routeset';
+  const routeCache = new Map();   // callsign -> {from,to}, or null once known-unknown
+  const routePending = new Set();
+
+  function routeLine(a){
+    // Live feeders only. The demo build exists to be screenshotted publicly, and
+    // a route names the places a flight actually connects — on a sample tape cut
+    // from a real sky that is a regional fingerprint of where the feeder is. It
+    // also has no business calling an external service to decorate canned data.
+    // Today's sample frames carry no callsigns so nothing would fire anyway;
+    // this makes that a rule rather than an accident of which tape was cut.
+    if (mode !== 'live') return '';
+    const cs = (a.flight || '').trim();
+    if (!cs) return '';
+    if (routeCache.has(cs)){
+      const r = routeCache.get(cs);
+      return r ? '<i class="rt">' + r.from + ' → ' + r.to + '</i>' : '';
+    }
+    if (!routePending.has(cs) && a.lat != null && a.lon != null){
+      routePending.add(cs);
+      fetch(ROUTE_API, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({planes: [{hex: a.hex, callsign: cs, lat: a.lat, lng: a.lon}]})
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          const r = d && d[0], ap = r && r._airports;
+          // `plausible: false` means it matched a callsign whose route doesn't
+          // fit where this aircraft actually is. Say nothing rather than
+          // something wrong — a confidently wrong origin is worse than none.
+          const ok = r && r.plausible && ap && ap.length >= 2;
+          const nm = x => x.location || x.iata || x.icao;
+          routeCache.set(cs, ok ? {from: nm(ap[0]), to: nm(ap[ap.length - 1])} : null);
+          routePending.delete(cs);
+        })
+        .catch(() => {
+          // Couldn't ask, as opposed to asked-and-there-is-no-route: leave the
+          // cache empty so a later click retries instead of the flight being
+          // permanently blank because the wifi blinked.
+          routePending.delete(cs);
+        });
+    }
+    return '';
+  }
+
   let selectedHex = null;
 
   function newPlane(){
@@ -6515,6 +6570,7 @@ window.GDCore = (function(){
         const dKm = a.r_dst != null ? (a.r_dst * 1.852 * distFac()).toFixed(1) : '–';
         det.className = 'gdp-detail show';
         det.innerHTML = '<b>' + (a.flight ? a.flight.trim() : (a.r || a.hex)) + '</b>' +
+          routeLine(a) +
           (a.r ? 'reg <span>' + a.r + '</span> · ' : '') + (a.t ? 'type <span>' + a.t + '</span><br>' : '<br>') +
           (a.desc ? a.desc + '<br>' : '') +
           (a.ownOp ? 'op <span>' + a.ownOp + '</span>' + (a.year ? ' · ' + a.year : '') + '<br>' : '') +

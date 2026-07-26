@@ -3,6 +3,17 @@
 All notable changes to the feeder dashboard. Update = re-run the install
 one-liner; your preferences live in your browser and survive.
 
+## v0.5.3 — 2026-07-26 (beta)
+
+- **Click a plane and see where it's going.** The contact panel now shows the
+  flight's route under the callsign — "Colombo -> Melbourne", "Perth -> Port
+  Hedland" — from adsb.im's own routeset service, which Dirk built and hosts.
+  Your receiver hears a callsign, never a route, so this is the one line on that
+  panel that isn't your own measurement: when the service is unsure the route
+  matches where the aircraft actually is, it shows nothing rather than guess.
+  One lookup per flight, cached; the browser asks, not the feeder, so a feeder
+  with no internet simply shows no route line.
+
 ## v0.5.2 — 2026-07-26 (beta)
 
 - **The SDR gain box did nothing.** It was editable, it was filled in from your
