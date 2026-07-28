@@ -12,6 +12,16 @@ if grep -q "debeers-labs" /opt/adsb/config/config.json /opt/adsb/config/.env 2>/
   echo "(or remove the feed.debeers-labs.xyz connector on the adsb.im Expert page later)"
 fi
 
+if [ -f /opt/adsb/glassdeck/UUID ]; then
+  echo
+  echo "note: this removes your feeder's GLASSDECK network id. Reinstalling mints a"
+  echo "new one, which the network sees as a different feeder — your coverage history"
+  echo "on the shared globe and any Uplink authorisations start over. To keep them,"
+  echo "save the id first and put it back after reinstalling:"
+  echo "  sudo cp /opt/adsb/glassdeck/UUID ~/glassdeck-uuid.bak"
+  echo
+fi
+
 echo "removing GLASSDECK cron lines…"
 ( crontab -l 2>/dev/null | grep -v glassdeck | grep -v gd_exporter ) | crontab - || true
 
