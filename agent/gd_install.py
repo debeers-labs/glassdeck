@@ -54,9 +54,9 @@ def rotate_uuid():
 
     The connector is switched FIRST and the network told afterwards, deliberately
     — the reverse order would leave the feeder briefly sending a credential the
-    hub had already revoked, and it would stop being counted. Done this way the
-    worst case is a rotation the hub never hears about, which costs nothing: the
-    new id simply looks like a new feeder, and re-running this repairs it.
+    hub had already revoked, and it would stop being counted. The switch is now
+    CONFIRMED before the hub is told, so "the hub never heard" is the only
+    failure left, and UUID.prev plus the retry below is what closes that.
     """
     old = feeder_uuid()
     new = str(uuidlib.uuid4())
@@ -64,37 +64,88 @@ def rotate_uuid():
         sys.exit("this feeder is not on the GLASSDECK network — nothing to rotate.\n"
                  "  (join first: sudo python3 gd_install.py --join)")
 
+    # An earlier --rotate may have switched the connector and then failed to
+    # reach the hub. Finish that first: without this, `old` below is the id from
+    # the LAST rotation, so the genuinely leaked one is never named to the hub
+    # again and the "re-run this" advice can never do what it promises.
+    try:
+        pending = open(UUID_FILE + ".prev").read().strip()
+    except OSError:
+        pending = ""
+    if pending and pending != old:
+        print("an earlier rotation never reached the network — retiring %s… first" % pending[:8])
+        if tell_hub(pending, old):
+            print("  retired.")
+            try:
+                os.remove(UUID_FILE + ".prev")
+            except OSError:
+                pass
+        else:
+            print("  still unreachable; it stays valid until it lapses on its own.")
+
     print("rotating this feeder's GLASSDECK id…")
+    # Keep the outgoing id BEFORE anything overwrites it. If the rest of this
+    # fails, `--rotate` re-run must still know which credential it was trying to
+    # retire; it used to read UUID_FILE, which by then held the new one, so the
+    # "just re-run it" advice below could never retire the leaked id at all.
     try:
         with open(UUID_FILE + ".prev", "w") as f:
             f.write(old + "\n")
         os.chmod(UUID_FILE + ".prev", 0o600)
     except OSError:
         pass
+
     with open(UUID_FILE, "w") as f:
         f.write(new + "\n")
     os.chmod(UUID_FILE, 0o600)
 
-    set_network(True)          # rebuilds the connector around the new id
+    # The connector must be PROVEN to carry the new id before the hub is told to
+    # retire the old one. Otherwise the hub revokes a credential this feeder is
+    # still sending, the feeder silently stops being counted, and seven days
+    # later prune() expires the revocation and quietly re-legitimises the very
+    # id the user asked to retire.
+    if not set_network(True):
+        with open(UUID_FILE, "w") as f:     # put the working id back
+            f.write(old + "\n")
+        os.chmod(UUID_FILE, 0o600)
+        sys.exit("\nThe feeder's config was NOT changed, so nothing has been rotated and your\n"
+                 "old id is still in use and still valid. Check the adsb.im Expert page,\n"
+                 "then run this again.")
 
-    # Now tell the hub, so the coverage map and the earned eligibility follow
-    # the feeder instead of restarting from nothing.
+    # Only now: the connector demonstrably carries the new id, so retiring the
+    # old one cannot orphan a feeder that is still using it.
+    if tell_hub(old, new):
+        print("done — the network moved your coverage and access to the new id.")
+        try:
+            os.remove(UUID_FILE + ".prev")   # nothing left owing
+        except OSError:
+            pass
+        return
+    print("\nThis feeder is now using its NEW id and keeps feeding normally, but the\n"
+          "network was not told, so the OLD id has NOT been retired and stays valid\n"
+          "until it lapses on its own (7 days after this feeder last sent it).\n"
+          "The old id is kept at %s.prev — run --rotate again when the network is\n"
+          "reachable and it will retire it then." % UUID_FILE)
+
+
+def tell_hub(old, new):
+    """Ask the network to retire `old` in favour of `new`. True only on success."""
     body = json.dumps({"old": old, "new": new}).encode()
     req = urllib.request.Request(GLASSDECK_API + "/rotate", data=body,
                                  headers={"Content-Type": "application/json"})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
-                if json.load(r).get("ok"):
-                    print("done — the network moved your coverage and access to the new id.")
-                    return
+                return bool(json.load(r).get("ok"))
+        except urllib.error.HTTPError as e:
+            # A refusal is a decision, not a blip — retrying cannot change it.
+            print("  the network refused the rotation (HTTP %s)" % e.code)
+            return False
         except Exception as e:
             print("  (attempt %d: %s)" % (attempt + 1, e))
-        time.sleep(5)
-    print("\nThe id was rotated on this feeder and the connector is using it, but the\n"
-          "network did not confirm the change. Nothing is broken — this feeder keeps\n"
-          "feeding — but it will appear as a new feeder on the map until it is told.\n"
-          "Re-run this command once the network is reachable to repair that.")
+            if attempt < 2:
+                time.sleep(5)
+    return False
 
 
 def feeder_uuid():
@@ -224,10 +275,10 @@ def set_network(join):
     want = glassdeck_connector() if join else None
     if join and want in cur:
         print("already feeding the GLASSDECK network — nothing to do")
-        return
+        return True
     if not join and not joined:
         print("not currently feeding the GLASSDECK network — nothing to do")
-        return
+        return True
     if join and joined:
         # an older join carried no uuid, so the hub had no way to tell this
         # feeder apart from any other — re-joining rewrites the entry
@@ -262,11 +313,19 @@ def set_network(join):
 
     for _ in range(45):  # the app rewrites .env, then restarts containers
         time.sleep(2)
-        now = GLASSDECK_HOST in read_extra_env()
-        if now == join:
+        cur = read_extra_env()
+        # Confirm what was ASKED FOR, not something that was already true. This
+        # used to test `GLASSDECK_HOST in cur`, which on a --rotate is already
+        # satisfied by the OLD connector before the write — so it announced
+        # "confirmed" on the first tick whether or not the new uuid ever landed,
+        # and --rotate went on to tell the hub to retire a credential the feeder
+        # was still sending. If a confirmation's predicate could have been
+        # evaluated BEFORE the write, it is not a confirmation.
+        if (want in cur) if join else (GLASSDECK_HOST not in cur):
             print("confirmed: feeder is %s the GLASSDECK network" % ("feeding" if join else "no longer feeding"))
-            return
+            return True
     print("could not confirm the change — check the adsb.im Expert page")
+    return False
 
 
 # ---------------- --check: is every assumption we make about the image still true?
