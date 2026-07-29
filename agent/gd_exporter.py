@@ -131,6 +131,18 @@ def read_env(path=ENV_PATH):
     return env
 
 
+def web_port(env):
+    """adsb.im's own web port — 80 on image installs, whatever AF_WEBPORT says
+    on app installs.
+
+    Hardcoding 80 here cost an app install everything that comes from that API:
+    `base` published as null and `uplinks` as {} forever, which the deck reads as
+    "no feeder link" and refuses to Save. Nothing on the page says why, so the
+    failure is silent. Same rule the installer and the deck's CONFIG.webPort use.
+    """
+    return env.get("AF_WEBPORT") or "80"
+
+
 def sharing_state(env):
     """What this feeder actually shares, re-read every minute.
 
@@ -202,17 +214,19 @@ def export_system(out_dir):
         if m:
             net[m.group(1)] = {"rx": int(m.group(2)), "tx": int(m.group(3))}
     uptime = float(read_first("/proc/uptime", "0 0").split()[0])
-    base = http_json("http://127.0.0.1:80/api/base_info")
+    env = read_env()
+    port = web_port(env)
+    base = http_json(f"http://127.0.0.1:{port}/api/base_info")
     uplinks = {}
     for name, key in AGG_STATUS_KEYS.items():
-        d = http_json(f"http://127.0.0.1:80/api/status/{key}")
+        d = http_json(f"http://127.0.0.1:{port}/api/status/{key}")
         if d and "0" in d:
             uplinks[name] = {"beast": d["0"].get("beast"), "mlat": d["0"].get("mlat")}
     atomic_write(os.path.join(out_dir, "system.json"), {
         "base": base,
         "uplinks": uplinks,
         "gdNet": {"joined": gd_joined()},
-        "sharing": sharing_state(read_env()),
+        "sharing": sharing_state(env),
         "ts": int(__import__("time").time()),
         "tempC": round(int(temp_raw) / 1000, 1),
         "load1": load1,

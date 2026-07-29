@@ -58,11 +58,15 @@ def rotate_uuid():
     CONFIRMED before the hub is told, so "the hub never heard" is the only
     failure left, and UUID.prev plus the retry below is what closes that.
     """
-    old = feeder_uuid()
-    new = str(uuidlib.uuid4())
-    if GLASSDECK_HOST not in read_extra_env():
+    cur = read_extra_env()
+    if cur is None:
+        sys.exit("cannot read the Expert extra-env box — this feeder's join state is\n"
+                 "unknown, so nothing was rotated. Run: sudo python3 gd_install.py --check")
+    if GLASSDECK_HOST not in cur:
         sys.exit("this feeder is not on the GLASSDECK network — nothing to rotate.\n"
                  "  (join first: sudo python3 gd_install.py --join)")
+    old = feeder_uuid()
+    new = str(uuidlib.uuid4())
 
     # An earlier --rotate may have switched the connector and then failed to
     # reach the hub. Finish that first: without this, `old` below is the id from
@@ -166,11 +170,39 @@ def feeder_uuid():
             return cur
     except OSError:
         pass
-    new = str(uuidlib.uuid4())
+    # No id on file — but that does not mean this feeder has no id. uninstall.sh
+    # deletes UUID and cannot delete the connector (that lives in the feeder's
+    # own config), so after uninstall+reinstall the Pi is still SENDING id X
+    # while this file has forgotten it. Minting a fresh one there forks the
+    # identity permanently: the hub keeps counting X, the new id starts from
+    # nothing, and --rotate cannot merge them because it would offer the hub an
+    # `old` it never issued. The wire is the authority; adopt what it carries.
+    new = uuid_from_connector()
+    if new:
+        print("recovered this feeder's GLASSDECK id from its own connector (%s…)" % new[:8])
+    else:
+        new = str(uuidlib.uuid4())
     with open(UUID_FILE, "w") as f:
         f.write(new + "\n")
     os.chmod(UUID_FILE, 0o600)   # a bearer credential, not world-readable
     return new
+
+
+def uuid_from_connector():
+    """The id this feeder is currently SENDING, read back out of its connector.
+
+    Only ids on a GLASSDECK entry count — the same box may carry uuid= for other
+    aggregators, and adopting one of those would hand our hub the feeder's
+    identity on that network."""
+    cur = read_extra_env()
+    if not cur:
+        return ""
+    for entry in re.split(r"[;\r\n]+", cur):
+        if GLASSDECK_HOST in entry:
+            m = re.search(r"uuid=([0-9a-fA-F-]{36})", entry)
+            if m:
+                return m.group(1)
+    return ""
 
 
 def glassdeck_connector():
@@ -223,24 +255,38 @@ CONFIG_JSON = "/opt/adsb/config/config.json"
 
 
 def read_extra_env():
-    """Current value of the Expert-page 'extra env' box.
+    """Current value of the Expert-page 'extra env' box — or None if unreadable.
 
     Newer adsb.im versions persist it in config.json; older ones in .env
     (where a multi-line value spans lines joined by CRLF — continuation lines
-    end with \r, real .env lines don't; value ends at the first bare \n)."""
+    end with \r, real .env lines don't; value ends at the first bare \n).
+
+    None and "" must stay distinguishable, because set_network() does not append
+    to this box — it REBUILDS it from what this returns. Reporting an unreadable
+    store as an empty box would post a single READSB_NET_CONNECTOR line over the
+    user's other Expert settings (custom readsb options, gain overrides, other
+    connectors), as root, with no backup. The key has already moved store once,
+    so "I cannot find it" is a live possibility, not a theoretical one."""
+    doc = None
     try:
-        val = json.load(open(CONFIG_JSON)).get(EXTRA_ENV_KEY)
-        if val is not None:
-            return val.strip()
+        doc = json.load(open(CONFIG_JSON))
     except (OSError, ValueError):
         pass
+    if doc is not None:
+        val = doc.get(EXTRA_ENV_KEY)
+        if val is not None:
+            return val.strip()
     try:
         raw = open(ENV_PATH, newline="").read()
     except OSError:
-        return ""
+        return None
     idx = raw.find(EXTRA_ENV_KEY + "=")
     if idx < 0:
-        return ""
+        # Absent from a config.json we could read AND from .env is a genuinely
+        # empty box. Absent from .env after config.json failed to parse says
+        # nothing about the box at all — the value may be sitting in the file we
+        # could not read, so refuse rather than guess.
+        return "" if doc is not None else None
     rest = raw[idx + len(EXTRA_ENV_KEY) + 1:]
     end = 0
     while True:
@@ -271,6 +317,14 @@ def post_extra_env(value):
 
 def set_network(join):
     cur = read_extra_env()
+    if cur is None:
+        # Everything below rebuilds the box and posts the result. With no
+        # trustworthy "before" there is nothing to rebuild FROM, and posting
+        # anyway would wipe whatever the user has in there.
+        print("cannot read the Expert extra-env box (%s / %s) — refusing to rewrite it.\n"
+              "  Nothing was changed. Run: sudo python3 gd_install.py --check"
+              % (CONFIG_JSON, ENV_PATH))
+        return False
     joined = GLASSDECK_HOST in cur
     want = glassdeck_connector() if join else None
     if join and want in cur:
@@ -314,6 +368,16 @@ def set_network(join):
     for _ in range(45):  # the app rewrites .env, then restarts containers
         time.sleep(2)
         cur = read_extra_env()
+        if cur is None:
+            # This loop runs DURING the app's rewrite of config.json, which is
+            # the likeliest moment in the whole program to catch a torn write —
+            # and on a newer image a half-written config.json plus a .env that
+            # never carried the key reads as None. Unreadable is "not yet", not
+            # "confirmed"; falling through to `want in cur` raised TypeError out
+            # of set_network, and on --rotate that skipped the rollback below it
+            # and left UUID holding an id the feeder was never sending. If it
+            # never becomes readable the loop ends and returns False, unchanged.
+            continue
         # Confirm what was ASKED FOR, not something that was already true. This
         # used to test `GLASSDECK_HOST in cur`, which on a --rotate is already
         # satisfied by the OLD connector before the write — so it announced
@@ -466,15 +530,24 @@ def run_check():
         return PASS, "present, mode 600"
 
     def c_network():
-        if GLASSDECK_HOST not in read_extra_env():
+        cur = read_extra_env()
+        if cur is None:
+            # Do NOT say "not joined" here: c_extra already FAILs on this, and
+            # the old wording sent the user to --join, which is the one command
+            # that rewrites the box it cannot read.
+            return FAIL, "extra-env unreadable — join state unknown, do not run --join"
+        if GLASSDECK_HOST not in cur:
             return WARN, "not feeding the GLASSDECK network (join with --join)"
         want = glassdeck_connector()
-        if want not in read_extra_env():
+        if want not in cur:
             return WARN, "connector present but does not carry this feeder's id — re-run --join"
         return PASS, "joined, connector carries this feeder's id"
 
     def c_hub():
-        if GLASSDECK_HOST not in read_extra_env():
+        cur = read_extra_env()
+        if cur is None:
+            return WARN, "cannot tell whether this feeder is joined (see extra-env)"
+        if GLASSDECK_HOST not in cur:
             return PASS, "not joined — nothing to reach"
         st, body = http_probe("%s/status?uuid=%s" % (GLASSDECK_API, feeder_uuid()), timeout=10)
         if st != 200:
@@ -565,7 +638,15 @@ def main():
     station = env.get("MLAT_SITE_NAME") or "MY-FEEDER"
     alt_m = env.get("FEEDER_ALT_M")
     version = (env.get("AF_FEEDER_VERSION") or env.get("AF_FEEDER_INITIAL_VERSION") or "").replace("(stable)", "") or "adsb.im"
-    uplinks = parse_uplinks(env.get("FEEDER_ULTRAFEEDER_CONFIG", ""), joined=GLASSDECK_HOST in read_extra_env())
+    # A plain install/update must survive an unreadable extra-env box: it only
+    # needs it to label the Uplinks card, so say so and carry on rather than
+    # dying halfway through a dashboard refresh.
+    extra = read_extra_env()
+    if extra is None:
+        print("  warning: could not read the Expert extra-env box — the Uplinks card will"
+              " show GLASSDECK as not joined (run --check)")
+        extra = ""
+    uplinks = parse_uplinks(env.get("FEEDER_ULTRAFEEDER_CONFIG", ""), joined=GLASSDECK_HOST in extra)
     range_km = measure_range_km()
 
     def sibling(name, default):

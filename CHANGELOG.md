@@ -3,6 +3,39 @@
 All notable changes to the feeder dashboard. Update = re-run the install
 one-liner; your preferences live in your browser and survive.
 
+## v0.6.1 — 2026-07-29
+
+An audit of the whole codebase, and the fixes it found. Nothing here changes how
+the dashboard looks; several things change whether it was telling you the truth.
+
+- **`--rotate` could report success without rotating anything.** Its
+  confirmation checked that the network host appeared in your config — already
+  true before the change, since the old connector is right there. So it said
+  "confirmed" whether or not the new id ever landed, then told the network to
+  retire a credential your feeder was still sending. Seven days later that
+  retirement expired and the id you asked to retire came quietly back. It now
+  confirms the connector it actually built, and a failed change restores your
+  working id instead of leaving you half-rotated.
+- **A failed rotation could not be repaired.** The new id was written before the
+  network was told, so re-running retired the wrong one. The old id is now kept
+  until the network confirms, and a later run finishes the job.
+- **The demo build published enough to locate the real feeder.** Sample
+  coordinates were shifted, but the distance-to-receiver on each contact was
+  not, and the two together solve for the true position. Those are now derived
+  from the shifted coordinates, and the timestamps are shifted too.
+- **The exporter assumed adsb.im runs on port 80**, so on an app install every
+  call to it failed silently — a permanently dead Save button and frozen
+  aggregator badges, with nothing on the page saying why. It now reads the port
+  the way the installer already did.
+- **The dashboard could freeze on the last good data and still call itself
+  live.** It now says when what you are looking at is stale.
+- A feeder whose network interface is not named `wlan0` or `eth0` no longer
+  breaks the live refresh entirely.
+- `uninstall.sh` no longer claims nothing was modified while deleting your
+  network identity, and explains how to keep it.
+- First tests for the installer itself — the file that runs as root on your
+  feeder had none.
+
 ## v0.6.0 — 2026-07-26
 
 **Everything the beta channel has been carrying since v0.3 is now on stable.**
